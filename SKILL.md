@@ -1,5 +1,6 @@
 ---
 name: ai-coding-workflow-manager
+license: MIT
 description: Install, adapt, update, audit, or safely remove a local-only AI Coding workflow with AGENTS.md bootstrapping, Quick/Standard/Spec routing, OpenSpec, Superpowers, Codex Hooks, reviewers, and doctor/validate commands. Use when installing a personal Git-ignored workflow in a project or maintaining an existing installation; do not use for ordinary feature implementation.
 ---
 

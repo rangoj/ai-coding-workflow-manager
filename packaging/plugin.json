@@ -1,0 +1,36 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "ai-coding-workflow-manager",
+  "version": "4.0.0",
+  "description": "Install, adapt, audit, update, and safely remove personal AI coding workflows in local Git checkouts.",
+  "author": {
+    "name": "rangoj",
+    "url": "https://github.com/rangoj"
+  },
+  "homepage": "https://github.com/rangoj/ai-coding-workflow-manager",
+  "repository": "https://github.com/rangoj/ai-coding-workflow-manager",
+  "license": "MIT",
+  "keywords": ["coding", "workflow", "git", "openspec", "codex", "local"],
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "AI Coding Workflow Manager",
+        "shortDescription": "Personal coding workflows",
+        "longDescription": "Install and maintain a personal AI coding workflow in an existing Git checkout. Route changes through Quick, Standard, or Spec; configure project-specific validation; audit local Git isolation; and update or safely remove managed files. Installed workflow files are excluded through local Git metadata and do not travel with project commits. Each teammate installs independently. Includes project Hook and read-only reviewer templates, with OpenSpec for change artifacts and Superpowers for execution methods. New or modified properties and methods require concise documentation comments, using Chinese by default. Requires a local desktop session, Git, and Ruby; complete adaptation also requires supported Node.js, OpenSpec, and the official Superpowers plugin. External dependencies are installed separately. Hooks need repository trust and user approval. Reviewer and harness declarations acknowledge supplied evidence; they are not proof that a review ran. This plugin is for workflow setup and maintenance, not ordinary feature implementation.",
+        "developerName": "rangoj",
+        "category": "Developer Tools",
+        "capabilities": ["Install personal workflows", "Audit local Git isolation", "Validate repository changes"],
+        "websiteURL": "https://github.com/rangoj/ai-coding-workflow-manager",
+        "supportURL": "https://github.com/rangoj/ai-coding-workflow-manager/issues",
+        "defaultPrompt": ["Install a personal AI coding workflow in my current Git project.", "Audit the local installation and report missing prerequisites."],
+        "brandColor": "#176B51",
+        "composerIcon": "./assets/icon.svg",
+        "logo": "./assets/icon.svg"
+      },
+      "publication": {
+        "release_notes": "Initial directory package of version 4.0.0: local-only project installation, Git isolation checks, safe migration and removal, and default Chinese documentation for properties and methods."
+      }
+    }
+  }
+}
