@@ -10,18 +10,24 @@ require "pathname"
 require "yaml"
 
 module AIWorkflowManager
-  VERSION = "3.3.0"
+  # 4.x 默认采用本机安装，移除将工作流随业务仓库共享的模式。
+  VERSION = "4.0.0"
   MANIFEST = ".ai-workflow/install-manifest.yml"
   CONFIG = ".ai-workflow/config.yml"
   AGENTS = "AGENTS.md"
   RETIRED_MANAGED_PATHS = [].freeze
-  PORTABLE_PATH_PROBES = [
+  # 对尚未生成的 OpenSpec 输出预检忽略覆盖。
+  LOCAL_PATH_PROBES = [
     "openspec/config.yaml",
-    "openspec/changes/portable-audit/proposal.md",
+    "openspec/changes/local-audit/proposal.md",
     ".agents/skills/openspec-audit/SKILL.md",
     ".agents/skills/.openspec-target"
   ].freeze
   DEPRECATED_OPENSPEC_SKILLS = %w[openspec-verify-change].freeze
+  # 本机排除块仅写入 Git 私有元数据，不影响团队的忽略规则。
+  LOCAL_EXCLUDE_BEGIN = "# BEGIN ai-coding-workflow-manager (local)"
+  # 本机排除块结束标记，用于无损清理用户规则。
+  LOCAL_EXCLUDE_END = "# END ai-coding-workflow-manager (local)"
   LEGACY_EXCLUDE_BEGIN = "# BEGIN ai-coding-workflow-manager (personal)"
   LEGACY_EXCLUDE_END = "# END ai-coding-workflow-manager (personal)"
 
@@ -54,34 +60,36 @@ module AIWorkflowManager
 
     private
 
+    # 仅接受本机安装；旧共享模式必须显式迁移。
     def parse(argv, operation)
-      options = { apply: false, portable: false }
+      options = { apply: false, local: false }
       parser = OptionParser.new do |opts|
         opts.on("--target PATH") { |value| options[:target] = value }
-        opts.on("--portable") { options[:portable] = true }
+        opts.on("--local") { options[:local] = true }
+        opts.on("--portable") { raise Error, "Portable mode was removed; install with --local" }
         opts.on("--apply") { options[:apply] = true }
       end
       parser.parse!(argv)
       raise Error, "Unexpected arguments: #{argv.join(' ')}" unless argv.empty?
       raise Error, "--target is required" unless options[:target]
-      raise Error, "install requires --portable" if operation == "install" && !options[:portable]
-      raise Error, "--portable is valid only for install" if operation != "install" && options[:portable]
+      raise Error, "--local is valid only for install" if operation != "install" && options[:local]
       raise Error, "--apply is valid only for uninstall" if operation != "uninstall" && options[:apply]
       options
     end
 
+    # 展示本机安装命令及不会变更 Git 索引的边界。
     def help(code)
       @output.puts <<~TEXT
         Usage:
-          ruby scripts/workflow_manager.rb install --target PATH --portable
+          ruby scripts/workflow_manager.rb install --target PATH [--local]
           ruby scripts/workflow_manager.rb update --target PATH
           ruby scripts/workflow_manager.rb audit --target PATH
           ruby scripts/workflow_manager.rb uninstall --target PATH [--apply]
 
-        Portable mode creates AGENTS.md only when absent and keeps workflow
-        files Git-visible for repository sharing. It never stages files,
-        commits, installs dependencies, or configures Git Hooks. Uninstall is
-        dry-run by default.
+        Local mode creates AGENTS.md only when absent and excludes installed
+        workflow files through .git/info/exclude. Team members install separately.
+        It never edits .gitignore, stages, commits, untracks files, installs
+        dependencies, or configures Git Hooks. Uninstall is dry-run by default.
       TEXT
       code
     end
@@ -119,9 +127,11 @@ module AIWorkflowManager
       YAML.dump(data)
     end
 
+    # 预检冲突和本机排除文件后安装，避免将工作流带入项目提交。
     def install(root, _options)
       raise Error, "Workflow already has a manifest; use update" if File.exist?(File.join(root, MANIFEST))
 
+      ensure_exclude_safe!(root)
       install_paths = asset_paths.dup
       agents_target = File.join(root, AGENTS)
       tracked_agents = git_nul(root, "ls-files", "-z", "--", AGENTS)
@@ -137,6 +147,11 @@ module AIWorkflowManager
       end
 
       ensure_no_symlink_components!(root, install_paths + [MANIFEST])
+
+      tracked = git_nul(root, "ls-files", "-z", "--", *(install_paths + [MANIFEST] + integration_files(root)))
+      unless tracked.empty?
+        raise Error, "Local installation cannot own tracked files: #{tracked.join(', ')}; migrate them through the normal Git workflow first"
+      end
 
       conflicts = install_paths.select do |relative|
         target = File.join(root, relative)
@@ -162,16 +177,19 @@ module AIWorkflowManager
         checksums[relative] = sha(target)
       end
       write_manifest(root, checksums)
+      write_local_exclude(root, checksums.keys)
 
       tests_ok = run_workflow_tests(root)
       audit_code = audit(root)
-      @output.puts "[PASS] portable workflow files are Git-visible" if audit_code.zero?
+      @output.puts "[PASS] workflow files are local-only and Git-ignored" if audit_code.zero?
       tests_ok && audit_code.zero? ? 0 : 1
     end
 
+    # 将旧安装迁移为本机模式，并保留自定义文件和已跟踪内容。
     def update(root)
       ensure_no_symlink_components!(root, [MANIFEST])
       manifest = read_manifest(root)
+      ensure_exclude_safe!(root)
       old = manifest.fetch("files")
       next_hashes = old.dup
       conflicts = []
@@ -183,6 +201,10 @@ module AIWorkflowManager
       end
       ensure_no_symlink_components!(root, write_candidates)
       migrated_config = migrated_config_content(root)
+      tracked = git_nul(root, "ls-files", "-z", "--", *(old.keys + asset_paths + [MANIFEST] + integration_files(root))) - [AGENTS]
+      unless tracked.empty?
+        raise Error, "Local migration requires removing workflow files from Git tracking first: #{tracked.join(', ')}; no files or index entries changed"
+      end
 
       asset_paths.each do |relative|
         target = File.join(root, relative)
@@ -203,7 +225,17 @@ module AIWorkflowManager
         end
         if relative == AGENTS && managed_agents_adapted?(root, old)
           if valid_agents_contract?(target, root)
-            @output.puts "[WARN] preserved adapted #{relative}"
+            content = File.read(target)
+            legacy_prefix = agents_contract_prefixes(root).find do |prefix|
+              prefix.include?("Keep it in Git with the other") && content.start_with?(prefix)
+            end
+            if legacy_prefix
+              File.write(target, source_content + content.delete_prefix(legacy_prefix))
+              next_hashes[relative] = Digest::SHA256.hexdigest(source_content)
+              @output.puts "[WARN] migrated managed #{relative} to local mode; preserved project context"
+            else
+              @output.puts "[WARN] preserved adapted #{relative}"
+            end
           else
             conflicts << relative
             @output.puts "[WARN] adapted #{relative} is missing required workflow contract markers"
@@ -241,16 +273,18 @@ module AIWorkflowManager
 
       File.write(File.join(root, CONFIG), migrated_config)
       write_manifest(root, next_hashes)
-      remove_legacy_exclude_block(root) if legacy_exclude_present?(root)
+      write_local_exclude(root, next_hashes.keys)
       tests_ok = run_workflow_tests(root)
       audit_code = audit(root)
       return 1 unless conflicts.empty?
       tests_ok && audit_code.zero? ? 0 : 1
     end
 
+    # 同时验证安装完整性、本机排除规则和未被 Git 跟踪的状态。
     def audit(root)
       ensure_no_symlink_components!(root, [MANIFEST])
       manifest = read_manifest(root)
+      ensure_exclude_safe!(root)
       integration_symlinks = integration_tree_symlinks(root)
       integration = integration_symlinks.empty? ? integration_files(root) : []
       files = manifest.fetch("files").keys + [MANIFEST, AGENTS] + integration
@@ -280,36 +314,34 @@ module AIWorkflowManager
       @output.puts "[WARN] generated #{AGENTS} was adapted after installation" if agents_drift
       failed |= report_check(drift.empty?, "managed implementation checksums", drift.join(", "))
 
-      ignored = files.select { |path| git_success?(root, "check-ignore", "--no-index", "-q", "--", path) }
-      failed |= report_check(ignored.empty?, "workflow files are Git-visible", ignored.join(", "))
-
-      tracked = git_nul(root, "ls-files", "-z", "--", *files)
-      pending = files - tracked
-      if pending.empty?
-        @output.puts "[PASS] workflow files are tracked"
-      else
-        @output.puts "[WARN] workflow files pending Git add: #{pending.join(', ')}"
-      end
+      local_files = manifest.fetch("files").keys + [MANIFEST] + integration
+      tracked = git_nul(root, "ls-files", "-z", "--", *local_files)
+      # 已有项目 AGENTS.md 仍由项目管理；仅审计本工具拥有的入口文件。
+      local_files -= [AGENTS] unless manifest.fetch("files").key?(AGENTS)
+      tracked &= local_files
+      failed |= report_check(tracked.empty?, "workflow files are not tracked", "Already tracked: #{tracked.join(', ')}; ignore rules cannot untrack files")
+      unignored = local_files.reject { |path| git_success?(root, "check-ignore", "--no-index", "-q", "--", path) }
+      failed |= report_check(unignored.empty?, "workflow files are locally ignored", unignored.join(", "))
+      failed |= report_check(local_exclude_present?(root), "local exclusion block exists", "run update to restore .git/info/exclude")
 
       executable = File.executable?(File.join(root, "Scripts/ai-workflow"))
       failed |= report_check(executable, "Scripts/ai-workflow is executable", "chmod +x required")
       failed |= !syntax_checks(root)
 
-      ignored_probes = PORTABLE_PATH_PROBES.select do |path|
+      unignored_probes = LOCAL_PATH_PROBES.reject do |path|
         git_success?(root, "check-ignore", "--no-index", "-q", "--", path)
       end
-      failed |= report_check(ignored_probes.empty?, "future OpenSpec paths are Git-visible", ignored_probes.join(", "))
-      failed |= report_check(!legacy_exclude_present?(root), "legacy personal exclusion is absent", "run update to remove the old manager block")
+      failed |= report_check(unignored_probes.empty?, "future OpenSpec paths are locally ignored", unignored_probes.join(", "))
+      failed |= report_check(!legacy_exclude_present?(root), "legacy personal exclusion is absent", "run update to migrate the old manager block")
 
       @output.puts(failed ? "[FAIL] audit" : "[PASS] audit")
       failed ? 1 : 0
     end
 
+    # 仅删除校验值匹配的本机文件；残留自定义内容继续保持忽略。
     def uninstall(root, apply: false)
       ensure_no_symlink_components!(root, [MANIFEST])
-      if apply && File.symlink?(exclude_path(root))
-        raise Error, "Git exclude path must not be a symlink"
-      end
+      ensure_exclude_safe!(root) if apply
       manifest = read_manifest(root)
       ensure_no_symlink_components!(root, manifest.fetch("files").keys) if apply
       external = integration_files(root)
@@ -332,7 +364,7 @@ module AIWorkflowManager
       removable.each { |path| @output.puts "[PASS] #{apply ? 'remove' : 'would remove'} #{path}" }
       preserved.each { |path| @output.puts "[WARN] preserve modified #{path}" }
       unless external.empty?
-        @output.puts "[WARN] preserve external OpenSpec files: #{external.length}; they remain Git-visible"
+        @output.puts "[WARN] preserve external OpenSpec files: #{external.length}; their local exclusions are retained"
       end
       unless apply
         @output.puts "[WARN] dry run only; use --apply to remove checksum-matching files"
@@ -347,7 +379,14 @@ module AIWorkflowManager
       else
         FileUtils.rm_f(File.join(root, MANIFEST))
       end
-      remove_legacy_exclude_block(root) if legacy_exclude_present?(root)
+      remaining = preserved.select { |relative| File.file?(File.join(root, relative)) }
+      local_metadata = Dir.glob(File.join(root, ".ai-workflow", "**", "*"), File::FNM_DOTMATCH)
+        .any? { |path| File.file?(path) || File.symlink?(path) }
+      if remaining.empty? && external.empty? && !local_metadata && !File.exist?(File.join(root, MANIFEST))
+        remove_manager_exclude_blocks(root)
+      else
+        @output.puts "[WARN] retained local exclusion block for preserved files"
+      end
       prune_empty_directories(root)
       @output.puts "[PASS] uninstall applied; modified and unrelated files were preserved"
       0
@@ -468,9 +507,11 @@ module AIWorkflowManager
       raise Error, "Cannot inspect OpenSpec integration tree: #{e.message}"
     end
 
+    # 通过 Git 解析私有元数据位置，同时支持普通仓库和 linked worktree。
     def exclude_path(root)
-      common = Open3.capture3("git", "-C", root, "rev-parse", "--git-path", "info/exclude").first.strip
-      File.expand_path(common, root)
+      stdout, stderr, status = Open3.capture3("git", "-C", root, "rev-parse", "--git-path", "info/exclude")
+      raise Error, "Cannot resolve Git exclude path: #{stderr.strip}" unless status.success? && !stdout.strip.empty?
+      File.expand_path(stdout.strip, root)
     end
 
     def path_entry_exists?(path)
@@ -492,11 +533,23 @@ module AIWorkflowManager
       false
     end
 
+    # 兼容旧共享模板的项目上下文追加，仍要求完整的原始协作契约。
     def agents_contract_prefixes(root)
       current = desired_content(AGENTS, root)
-      # 3.1 模板没有注释规范段；保留旧前缀以支持已适配项目无损升级。
-      previous = current.sub(/\n## Code Comments\n.*?(?=\n## Specification And Method)/m, "")
-      [current, previous].uniq
+      old_intro = "project did not already provide `AGENTS.md`. Keep it in Git with the other\nworkflow definitions so every device receives the same collaboration contract."
+      local_intro = "project did not already provide `AGENTS.md`. This generated entry and the other\ninstalled workflow definitions are personal files excluded through\n`.git/info/exclude`. Do not add them to project commits; other team members\ninstall their own workflow. Preserve an existing project-owned `AGENTS.md`."
+      legacy = current.sub(local_intro, old_intro)
+      old_comments = <<~TEXT.chomp
+        Follow the Chinese comments contract in `WORKFLOW.md` for newly added or
+        modified code. Every newly added or modified type member property requires a
+        concise Chinese documentation comment, even when its name and type are
+        self-explanatory. This is not a requirement to comment every method or narrate
+        straightforward implementation code.
+      TEXT
+      legacy_properties = legacy.sub(/(?<=## Code Comments\n\n).*?(?=\n\n## Specification And Method)/m, old_comments)
+      [current, legacy, legacy_properties].flat_map do |template|
+        [template, template.sub(/\n## Code Comments\n.*?(?=\n## Specification And Method)/m, "")]
+      end.uniq
     end
 
     def ensure_no_symlink_components!(root, relatives)
@@ -521,19 +574,79 @@ module AIWorkflowManager
       end
     end
 
-    def legacy_exclude_present?(root)
+    # 拒绝符号链接或损坏的标记块，避免改写仓库外的用户文件。
+    def ensure_exclude_safe!(root)
       path = exclude_path(root)
-      File.file?(path) && !File.symlink?(path) && File.read(path).include?(LEGACY_EXCLUDE_BEGIN)
+      current = path
+      loop do
+        raise Error, "Git exclude path must not be a symlink: #{current}" if File.symlink?(current)
+        break if File.dirname(current) == current
+        current = File.dirname(current)
+      end
+      raise Error, "Git exclude path must be a regular file" if File.exist?(path) && !File.file?(path)
+      content = File.file?(path) ? File.read(path) : ""
+      [[LOCAL_EXCLUDE_BEGIN, LOCAL_EXCLUDE_END], [LEGACY_EXCLUDE_BEGIN, LEGACY_EXCLUDE_END]].each do |first, last|
+        starts = content.lines.count { |line| line.chomp == first }
+        ends = content.lines.count { |line| line.chomp == last }
+        valid = starts == 0 && ends == 0 || starts == 1 && ends == 1 && content.index(first) < content.index(last)
+        raise Error, "Invalid workflow exclude block; reconcile it before changes" unless valid
+      end
     end
 
-    def remove_legacy_exclude_block(root)
+    # 识别旧个人模式标记，以便更新时只迁移本工具自己的规则。
+    def legacy_exclude_present?(root)
+      path = exclude_path(root)
+      File.file?(path) && File.readlines(path, chomp: true).include?(LEGACY_EXCLUDE_BEGIN)
+    end
+
+    # 本机标记是安装完整性的一部分，不能只依赖全局忽略配置。
+    def local_exclude_present?(root)
+      path = exclude_path(root)
+      File.file?(path) && File.readlines(path, chomp: true).include?(LOCAL_EXCLUDE_BEGIN)
+    end
+
+    # 生成精确路径；只排除工作流和 OpenSpec，不屏蔽整个 .codex 或 .agents。
+    def local_exclude_patterns(paths)
+      patterns = paths.reject { |path| path.start_with?(".ai-workflow/") }.map do |path|
+        "/" + path.gsub(/[\\*?\[\]#! ]/) { |char| "\\#{char}" }
+      end
+      (patterns + ["/.ai-workflow/", "/openspec/", "/.agents/skills/openspec-*/", "/.agents/skills/.openspec-target"]).uniq.sort
+    end
+
+    # 从文本移除完整管理块，保留用户自行维护的所有其他规则。
+    def without_manager_exclude_blocks(content)
+      endings = { LOCAL_EXCLUDE_BEGIN => LOCAL_EXCLUDE_END, LEGACY_EXCLUDE_BEGIN => LEGACY_EXCLUDE_END }
+      closing = nil
+      content.each_line.each_with_object(String.new) do |line, kept|
+        marker = line.chomp
+        if closing
+          closing = nil if marker == closing
+        elsif endings.key?(marker)
+          closing = endings.fetch(marker)
+        else
+          kept << line
+        end
+      end
+    end
+
+    # 安装和更新共用同一排除块，重复执行不会追加重复规则。
+    def write_local_exclude(root, paths)
+      ensure_exclude_safe!(root)
+      path = exclude_path(root)
+      content = File.file?(path) ? File.read(path) : ""
+      content = without_manager_exclude_blocks(content)
+      content += "\n" unless content.empty? || content.end_with?("\n")
+      block = ([LOCAL_EXCLUDE_BEGIN] + local_exclude_patterns(paths) + [LOCAL_EXCLUDE_END, ""]).join("\n")
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, content + block)
+    end
+
+    # 完全卸载时清理本工具的规则，不删除用户原有的忽略项。
+    def remove_manager_exclude_blocks(root)
+      ensure_exclude_safe!(root)
       path = exclude_path(root)
       return unless File.file?(path)
-      raise Error, "Git exclude path must not be a symlink" if File.symlink?(path)
-      content = File.read(path)
-      return unless content.include?(LEGACY_EXCLUDE_BEGIN)
-      content = content.sub(/\n?#{Regexp.escape(LEGACY_EXCLUDE_BEGIN)}.*?#{Regexp.escape(LEGACY_EXCLUDE_END)}\n?/m, "\n")
-      File.write(path, content.sub(/\n{3,}/, "\n\n"))
+      File.write(path, without_manager_exclude_blocks(File.read(path)))
     end
 
     def syntax_checks(root)

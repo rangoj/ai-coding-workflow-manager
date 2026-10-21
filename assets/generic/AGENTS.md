@@ -1,8 +1,10 @@
 # {{PROJECT_NAME}} AI Collaboration Guide
 
 The workflow manager created this repository instruction entry because the
-project did not already provide `AGENTS.md`. Keep it in Git with the other
-workflow definitions so every device receives the same collaboration contract.
+project did not already provide `AGENTS.md`. This generated entry and the other
+installed workflow definitions are personal files excluded through
+`.git/info/exclude`. Do not add them to project commits; other team members
+install their own workflow. Preserve an existing project-owned `AGENTS.md`.
 
 ## Required Context
 

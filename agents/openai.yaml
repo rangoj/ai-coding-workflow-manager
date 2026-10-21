@@ -1,4 +1,4 @@
 interface:
   display_name: "AI Coding Workflow Manager"
-  short_description: "Install portable repository workflows with OpenSpec"
-  default_prompt: "Use $ai-coding-workflow-manager to install a portable AI Coding workflow in the current Git project."
+  short_description: "Install personal Git-ignored workflows with OpenSpec"
+  default_prompt: "Use $ai-coding-workflow-manager to install a local-only AI Coding workflow in the current Git project."

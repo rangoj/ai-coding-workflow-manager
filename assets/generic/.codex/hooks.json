@@ -1,5 +1,5 @@
 {
-  "description": "Portable project AI coding workflow hooks.",
+  "description": "Personal project AI coding workflow hooks.",
   "hooks": {
     "SessionStart": [
       {
@@ -9,7 +9,7 @@
             "type": "command",
             "command": "/usr/bin/ruby \"$(git rev-parse --show-toplevel)/.codex/hooks/session_start.rb\"",
             "timeout": 5,
-            "statusMessage": "Loading portable workflow context",
+            "statusMessage": "Loading local workflow context",
             "additionalContextLimit": 3000
           }
         ]

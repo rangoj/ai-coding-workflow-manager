@@ -32,10 +32,12 @@ Authoritative source: <https://github.com/Fission-AI/OpenSpec>
    `$openspec-apply-change`, not `/opsx:*`. Before archiving, run
    `openspec validate <change>` and retain its result as validation evidence.
 
-Keep `openspec/`, `.agents/skills/openspec-*`, and OpenSpec's
-`.agents/skills/.openspec-target` ownership marker Git-visible and commit them
-for cross-device consistency. OpenSpec owns these outputs; the manager audits
-but never edits or removes their contents.
+Keep local `openspec/`, `.agents/skills/openspec-*`, and OpenSpec's
+`.agents/skills/.openspec-target` ownership marker ignored through the manager's
+`.git/info/exclude` block. Do not commit them. Each team member initializes their
+own OpenSpec installation. If the project already tracks these paths, stop and
+report the conflict rather than modifying or untracking shared artifacts.
+OpenSpec owns these outputs; the manager audits but never edits or removes them.
 
 ## Superpowers
 
@@ -57,7 +59,7 @@ the project. Missing discovery is `UNVERIFIED`, not `PASS`.
   verification, and archive.
 - Superpowers: brainstorming, TDD, systematic debugging, review discipline, and
   verification-before-completion.
-- Workflow manager: route selection, local gates, Git visibility, integration
+- Workflow manager: route selection, local gates, local Git isolation, integration
   checks, and final evidence status.
 
 For Spec work, OpenSpec tasks are the canonical plan. Apply Superpowers methods

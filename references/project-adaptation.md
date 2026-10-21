@@ -43,9 +43,21 @@ Standard commands provide meaningful coverage for ordinary runtime changes.
 Spec commands are additional broader or sensitive checks; Spec runs both lists.
 An empty command list is not success and is reported as `UNVERIFIED`.
 
-## Repository Portability
+## Local Installation Boundary
 
-Keep the workflow definitions, OpenSpec artifacts, and generated OpenSpec Codex
-Skills visible to Git. Do not add them to `.gitignore` or `.git/info/exclude`.
-The manager never stages or commits; use the repository's normal review and
-commit process. Audit after installation and after any Git migration.
+Keep installed workflow definitions, local OpenSpec artifacts, and generated
+OpenSpec Codex Skills out of project commits using the manager-owned block in
+`.git/info/exclude`. Do not edit `.gitignore`, global ignore settings, or unrelated
+exclude rules. Do not ignore all of `.codex/` or `.agents/`. Preserve existing
+project-owned instructions and shared configurations; a differing target is a
+conflict. The manager excludes only a generated `AGENTS.md` it owns.
+
+Tracked files are not hidden by ignore rules. Installation or migration stops
+and lists tracked workflow files; the user must decide how to remove shared
+workflow files through the repository's normal Git process. Do not run
+`git rm --cached`, stage, or commit automatically. `update` can migrate an
+untracked portable installation by adding local rules.
+
+Each teammate installs independently. Audit after installation, adaptation,
+and local Git metadata changes. Uninstall removes only safe managed files and
+retains ignore protection when customized or external files remain.

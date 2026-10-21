@@ -1,7 +1,8 @@
-# Portable AI Coding Workflow
+# Local AI Coding Workflow
 
-This execution contract supplements the repository's `AGENTS.md`. Commit it and
-the other workflow definitions so every device uses the same routes and gates.
+This personal execution contract supplements the repository's `AGENTS.md`.
+Installed workflow files are excluded locally through `.git/info/exclude` and
+must not be added to project commits. Each team member installs independently.
 
 ## Start Every Task
 
@@ -166,8 +167,12 @@ stale output.
 
 ## Repository Boundary
 
-This phase has no CI gate or Git Hook. Enforcement applies only in trusted
-Codex project Hooks and explicit local validation. Keep `AGENTS.md`, this file,
-`.ai-workflow/`, `.codex/`, `Scripts/ai-workflow*`, `openspec/`, and generated
-OpenSpec Codex Skills Git-visible and commit them through the normal repository
-workflow. Each device still installs external CLIs and plugins separately.
+This workflow has no CI gate or Git Hook. Enforcement applies only in trusted
+Codex project Hooks and explicit local validation. Keep installed `WORKFLOW.md`,
+`.ai-workflow/`, owned `.codex` files, `Scripts/ai-workflow*`, local `openspec/`,
+and generated OpenSpec Codex Skills out of project commits through the manager's
+`.git/info/exclude` block. A generated `AGENTS.md` is also excluded; an existing
+project-owned `AGENTS.md` is preserved. Do not modify the team's `.gitignore`,
+ignore unrelated files, or automatically untrack files already in Git.
+Each teammate installs this Skill, external CLIs, plugins, and project workflow
+independently. Cloning the project does not install this personal workflow.

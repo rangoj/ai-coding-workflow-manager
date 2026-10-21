@@ -1,23 +1,32 @@
 ---
 name: ai-coding-workflow-manager
-description: Install, adapt, update, audit, or safely remove a portable repository AI Coding workflow with AGENTS.md bootstrapping, Quick/Standard/Spec routing, OpenSpec, Superpowers, Codex Hooks, reviewers, and doctor/validate commands. Use when applying a Git-visible workflow to a project or maintaining an existing installation; do not use for ordinary feature implementation.
+description: Install, adapt, update, audit, or safely remove a local-only AI Coding workflow with AGENTS.md bootstrapping, Quick/Standard/Spec routing, OpenSpec, Superpowers, Codex Hooks, reviewers, and doctor/validate commands. Use when installing a personal Git-ignored workflow in a project or maintaining an existing installation; do not use for ordinary feature implementation.
 ---
 
 # AI Coding Workflow Manager
 
-Manage a project-local AI coding workflow whose definitions are committed to Git
-for consistent use across devices.
+Manage a personal AI coding workflow installed in a local project checkout.
+Installed workflow files stay out of project commits through `.git/info/exclude`;
+each team member installs and configures the workflow independently.
 Use project inspection for configuration judgment and the bundled Ruby manager
-for deterministic file lifecycle and Git-visibility checks.
+for deterministic file lifecycle and local-isolation checks. The Skill's own
+source repository can still be published and versioned independently.
 
 ## Boundaries
 
-- Support portable repository mode only.
+- Support local-only installation. Default install and `install --local` are equivalent.
+- Never change the project `.gitignore` or global Git ignore configuration.
+- Manage only this tool's marked block in the Git-resolved `info/exclude`.
 - Do not add CI, Git Hooks, `core.hooksPath`, commits, or staging.
 - Create `AGENTS.md` only when the project lacks one. Never modify or
   replace an existing `AGENTS.md`.
-- Keep workflow files, OpenSpec artifacts, and generated Codex Skills visible to
-  Git. Do not add ignore rules for them.
+- Ignore installed workflow files, local OpenSpec artifacts, and generated
+  OpenSpec Codex Skills through the local exclude block. Do not ignore entire
+  `.codex/` or `.agents/` directories, unrelated files, or an existing project-owned
+  `AGENTS.md`. Never run `git rm --cached`, stage, or commit automatically.
+- Ignore rules do not affect tracked files. Stop installation or migration when
+  owned workflow files are already tracked and report the exact paths; preserve
+  their contents and the Git index until the user handles their shared history.
 - Do not overwrite a differing target file.
 - Do not install Node.js, edit shell startup files, use `sudo`, or invent project
   validation commands.
@@ -41,7 +50,7 @@ for deterministic file lifecycle and Git-visibility checks.
 Run the manager relative to this Skill directory:
 
 ```bash
-ruby scripts/workflow_manager.rb install --target /absolute/project --portable
+ruby scripts/workflow_manager.rb install --target /absolute/project --local
 ruby scripts/workflow_manager.rb audit --target /absolute/project
 ruby scripts/workflow_manager.rb update --target /absolute/project
 ruby scripts/workflow_manager.rb uninstall --target /absolute/project
@@ -59,7 +68,7 @@ ruby scripts/workflow_manager.rb uninstall --target /absolute/project --apply
 4. Read [project-adaptation.md](references/project-adaptation.md),
    [configuration-schema.md](references/configuration-schema.md), and
    [integrations.md](references/integrations.md).
-5. Run `install --portable`. Stop on conflicts; explain each conflict and do
+5. Run `install --local`. Stop on conflicts; explain each conflict and do
    not delete or overwrite it automatically.
 6. If the manager created `AGENTS.md`, adapt its project context without
    weakening the workflow contract. If `AGENTS.md` already existed, preserve it.
@@ -75,7 +84,8 @@ ruby scripts/workflow_manager.rb uninstall --target /absolute/project --apply
    verification command are known.
 9. Establish OpenSpec exactly as described in `integrations.md`. Initialize the
    core Codex profile with cloud setup disabled. Keep `openspec/` and
-   `.agents/skills/openspec-*` Git-visible so they can be shared.
+   `.agents/skills/openspec-*` locally ignored; each teammate initializes their
+   own installation. Never modify a tracked shared OpenSpec setup to make it local.
 10. Confirm the official Superpowers Codex plugin exposes `using-superpowers`.
    When absent, tell the user to install it from the Codex Plugins sidebar and
    stop with integration status `UNVERIFIED`.
@@ -107,21 +117,27 @@ Run `update` and inspect its report. It adds `AGENTS.md` only when
 missing and migrates legacy configuration with integration keys. The manager
 replaces a managed file only when the target matches the previous installed
 checksum. It preserves the project-owned configuration and reports locally
-modified files. It also removes the manager's legacy personal exclude block.
+modified files. It migrates the manager's legacy personal exclude block and
+recreates the local exclude block without changing user rules. Previously
+portable files that are already tracked need a user-managed Git migration first;
+ignore rules alone cannot remove them from future commits.
 Run `openspec update`, then re-run tests, doctor, and audit.
 
 ## Audit
 
-Use `audit` after installation, moving the workflow, or when Git visibility is
+Use `audit` after installation, environment changes, or when local isolation is
 in doubt. Resolve every `FAIL`. Configuration drift after project adaptation is
-expected. Untracked workflow files are a `WARN` until added; ignored workflow or
-OpenSpec paths are a `FAIL`.
+expected. Owned workflow and OpenSpec paths must be ignored and untracked;
+missing local exclusion rules or tracked workflow files are a `FAIL`. An existing
+project-owned `AGENTS.md` is preserved and excluded from ownership checks.
+Never ask users to add the installed workflow files to Git.
 
 ## Uninstall
 
 Run the dry run first. With `--apply`, remove only checksum-matching managed
-untracked files and the manager's legacy `.git/info/exclude` block. Tracked,
-staged, existing, or modified project-owned files are preserved and should be
+untracked files. Remove the manager's local and legacy exclude blocks only when
+no managed or external files remain; otherwise retain exclusion for preserved
+local files and explain why. Tracked, staged, existing, or modified project-owned files are preserved and should be
 removed through the normal Git workflow. OpenSpec and Superpowers remain
 externally owned and are never deleted by the manager. Never remove project
 code or unrelated `.codex` content.
@@ -130,6 +146,6 @@ code or unrelated `.codex` content.
 
 Return the operation, target root, conflicts, installed or preserved files,
 workflow test result, doctor result, audit result, OpenSpec and Superpowers
-status, validation-command coverage, comment-language and property/method comment
-review results, and remaining risks. Use `PASS`, `FAIL`, `WARN`, and
+status, validation-command coverage, local Git-isolation status, comment-language
+and property/method comment review results, and remaining risks. Use `PASS`, `FAIL`, `WARN`, and
 `UNVERIFIED` literally.

@@ -48,7 +48,7 @@ module AIWorkflow
     def check_paths
       missing_workflow = WORKFLOW_FILES.reject { |path| File.file?(File.join(root, path)) }
       if missing_workflow.empty?
-        @reporter.add("PASS", "workflow-files", "Required portable workflow files exist")
+        @reporter.add("PASS", "workflow-files", "Required local workflow files exist")
       else
         @reporter.add("FAIL", "workflow-files", "Missing: #{missing_workflow.join(', ')}")
       end
