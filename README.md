@@ -14,7 +14,7 @@ A Codex Skill for installing and maintaining a **personal, local-only** AI codin
 npx skills add rangoj/ai-coding-workflow-manager --skill ai-coding-workflow-manager -a codex -g
 ```
 
-This installs the Skill for your user. It does not install the workflow into a business project until you ask it to. The public repository can also be discovered through the [Skills directory](https://skills.sh/); indexing depends on that service.
+The optional Skills CLI requires Node.js 22.20 or newer. This installs the Skill for your user. It does not install the workflow into a business project until you ask it to. The [Skills directory detail page](https://skills.sh/rangoj/ai-coding-workflow-manager/ai-coding-workflow-manager) is available; search indexing depends on that service.
 
 ## Local installation
 
